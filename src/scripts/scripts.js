@@ -2659,6 +2659,25 @@ function getTrackId(track) {
 }
 
 function getCurrentPlayableTracks() {
+  // Check which tab/subview is active and if we have a synced list for it
+  let activeKey = 'main';
+  const stagingPanel = document.getElementById("staging");
+  
+  // Staging is a main tab pane using the 'active' class
+  if (stagingPanel && stagingPanel.classList.contains("active")) {
+    activeKey = 'staging';
+  } else {
+    // Playlist sequence is a subview within the Track List tab, managed by 'hidden' class
+    const playlistPanel = document.getElementById("playlist-sequence-view");
+    if (playlistPanel && !playlistPanel.classList.contains("hidden")) {
+      activeKey = 'playlist-sequence';
+    }
+  }
+
+  if (window.oymTrackLists && window.oymTrackLists[activeKey]) {
+    return window.oymTrackLists[activeKey];
+  }
+
   if (currentSearchQuery.trim() !== "") {
     return getGlobalSearchTracks(currentSearchQuery);
   }

@@ -501,6 +501,19 @@ const TrackTable = ({
         );
     }, [sortedTracks, searchQuery]);
 
+    // Sync current table tracks to global window for legacy JS access
+    useEffect(() => {
+        const tableKey = isStaging ? 'staging' : (storageNamespace || 'main');
+        if (!window.oymTrackLists) window.oymTrackLists = {};
+        window.oymTrackLists[tableKey] = filteredTracks;
+
+        return () => {
+            if (window.oymTrackLists) {
+                delete window.oymTrackLists[tableKey];
+            }
+        };
+    }, [filteredTracks, isStaging, storageNamespace]);
+
     // Pagination
     const paginatedTracks = useMemo(() => {
         const start = currentPage * pageSize;
