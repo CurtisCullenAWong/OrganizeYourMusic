@@ -198,7 +198,6 @@ var sourceIndex = 7;
 var thePlot = null;
 
 var skipGenrePhrases = ["christmas"];
-var audio = document.createElement("audio");
 var nowPlaying = null;
 var curNode = null;
 var abortLoading = false;
@@ -1903,7 +1902,6 @@ function toggleSidebarSections() {
 // Make shared variables and functions available to other modules
 window.curSelected = curSelected;
 window.onplaying = nowPlaying;
-window.Audio = audio;
 window.playTrack = playTrack;
 window.curNode = curNode;
 window.allTracks = allTracks;
@@ -2655,29 +2653,87 @@ function fetchCurrentUserProfile() {
   return getSpotifyP(url, null);
 }
 
+function getTrackId(track) {
+  if (!track) return null;
+  return track.id || (track.track && track.track.id) || (track.details && track.details.id) || null;
+}
+
+function getCurrentPlayableTracks() {
+  if (currentSearchQuery.trim() !== "") {
+    return getGlobalSearchTracks(currentSearchQuery);
+  }
+
+  if (curNode && Array.isArray(curNode.tracks) && curNode.tracks.length > 0) {
+    return curNode.tracks;
+  }
+
+  if (Array.isArray(allTracks) && allTracks.length > 0) {
+    return allTracks;
+  }
+
+  return Object.values(curTracks);
+}
+
+function playAdjacentTrack(direction) {
+  var tracks = getCurrentPlayableTracks();
+  if (!tracks.length) return;
+
+  var currentId = getTrackId(nowPlaying || window.nowPlaying);
+  if (!currentId) return;
+
+  var currentIndex = tracks.findIndex(function (track) {
+    return getTrackId(track) === currentId;
+  });
+
+  if (currentIndex === -1) return;
+
+  var nextTrack = tracks[currentIndex + direction];
+  if (nextTrack) {
+    playTrack(nextTrack);
+  }
+}
+
+function playNextTrack() {
+  playAdjacentTrack(1);
+}
+
+function playPreviousTrack() {
+  playAdjacentTrack(-1);
+}
+
 
 function playTrack(track) {
   const player = document.getElementById("spotify-player");
   const container = document.getElementById("spotify-player-container");
+  const trackId = getTrackId(track);
 
-  if (track != nowPlaying) {
+  if (!trackId) return;
+
+  const normalizedTrack = {
+    ...track,
+    id: trackId,
+    details: {
+      ...(track.details || {}),
+      id: (track.details && track.details.id) || trackId,
+    },
+  };
+
+  if (trackId !== getTrackId(nowPlaying)) {
     if (player && container) {
-      const trackId = track.id || (track.track && track.track.id) || (track.details && track.details.id);
-      if (trackId) {
-        player.src = `https://open.spotify.com/embed/track/${trackId}?utm_source=generator&theme=0&autoplay=1&auto_play=true`;
-        container.classList.remove("hidden");
-      }
+      player.src = `https://open.spotify.com/embed/track/${trackId}?utm_source=generator&theme=0&autoplay=1&auto_play=true`;
+      container.classList.remove("hidden");
     }
-    audio.pause();
-    nowPlaying = track;
+    nowPlaying = normalizedTrack;
+    window.nowPlaying = normalizedTrack;
+    window.dispatchEvent(new Event("oym-sync-table"));
   } else {
     stopTrack();
   }
 }
 
 function stopTrack() {
-  audio.pause();
   nowPlaying = null;
+  window.nowPlaying = null;
   const container = document.getElementById("spotify-player-container");
   if (container) {
     container.classList.add("hidden");
@@ -2686,6 +2742,7 @@ function stopTrack() {
   if (player) {
     player.src = "";
   }
+  window.dispatchEvent(new Event("oym-sync-table"));
   document.querySelectorAll(".playing").forEach(function (el) {
     el.classList.remove("playing");
   });
@@ -2693,6 +2750,8 @@ function stopTrack() {
 
 window.playTrack = playTrack;
 window.stopTrack = stopTrack;
+window.playNextTrack = playNextTrack;
+window.playPreviousTrack = playPreviousTrack;
 
 
 

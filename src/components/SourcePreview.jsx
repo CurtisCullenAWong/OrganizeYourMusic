@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 /**
@@ -6,37 +6,51 @@ import { createPortal } from 'react-dom';
  * A performant hover preview that tracks the mouse using requestAnimationFrame
  * and operates independently of the parent component's render cycle.
  */
-const SourcePreview = React.memo(({ imageUrl }) => {
-    const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+const SourcePreview = React.memo(({ imageUrl, initialPosition }) => {
+    const previewRef = useRef(null);
+    const latestPointRef = useRef({ x: 0, y: 0 });
     const requestRef = useRef();
 
     useEffect(() => {
         if (!imageUrl) return;
 
         const handleMove = (e) => {
-            if (requestRef.current) cancelAnimationFrame(requestRef.current);
+            latestPointRef.current = { x: e.clientX, y: e.clientY };
+
+            if (requestRef.current) return;
+
             requestRef.current = requestAnimationFrame(() => {
-                setMousePos({ x: e.clientX, y: e.clientY });
+                requestRef.current = null;
+
+                if (!previewRef.current) return;
+
+                const { x, y } = latestPointRef.current;
+                previewRef.current.style.transform = `translate3d(${x + 30}px, ${y}px, 0) translate3d(0, -50%, 0)`;
             });
         };
+
+        if (initialPosition && previewRef.current) {
+            previewRef.current.style.transform = `translate3d(${initialPosition.x + 30}px, ${initialPosition.y}px, 0) translate3d(0, -50%, 0)`;
+        }
 
         window.addEventListener('mousemove', handleMove);
         return () => {
             window.removeEventListener('mousemove', handleMove);
             if (requestRef.current) cancelAnimationFrame(requestRef.current);
         };
-    }, [imageUrl]);
+    }, [imageUrl, initialPosition]);
 
     if (!imageUrl) return null;
 
     return createPortal(
         <div
-            className="fixed z-999999 pointer-events-none animate-in fade-in zoom-in-95 duration-300"
+            ref={previewRef}
+            className="fixed left-0 top-0 z-999999 pointer-events-none opacity-100"
             style={{
-                left: `${mousePos.x}px`,
-                top: `${mousePos.y}px`,
-                transform: 'translate(30px, -50%)',
-                willChange: 'left, top'
+                transform: initialPosition
+                    ? `translate3d(${initialPosition.x + 30}px, ${initialPosition.y}px, 0) translate3d(0, -50%, 0)`
+                    : 'translate3d(30px, -50%, 0)',
+                willChange: 'transform, opacity'
             }}
         >
             <div className="relative">
@@ -48,8 +62,10 @@ const SourcePreview = React.memo(({ imageUrl }) => {
                     <img
                         src={imageUrl}
                         alt="Preview"
-                        className="w-56 h-56 object-contain scale-100 group-hover:scale-105 transition-transform duration-700 bg-zinc-950/50"
-                        loading="lazy"
+                        className="w-56 h-56 object-contain scale-100 bg-zinc-950/50"
+                        loading="eager"
+                        fetchPriority="high"
+                        decoding="async"
                         onError={(e) => e.target.style.display = 'none'}
                     />
                     {/* Subtle Overlay */}

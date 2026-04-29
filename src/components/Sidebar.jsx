@@ -63,11 +63,11 @@ const SidebarItem = memo(({ node, activeNode, onNodeClick, showHoverImage, onHov
         return () => observer.disconnect();
     }, [isVisible]);
 
-    const handleMouseEnter = useCallback(() => {
+    const handleMouseEnter = useCallback((event) => {
         setIsHovered(true);
         if (showHoverImage) {
             const img = node.imageUrl || (node.tracks?.length > 0 ? getTrackImage(node.tracks[0]) : null);
-            if (img) onHoverImageChange(img);
+            if (img) onHoverImageChange(img, { x: event.clientX, y: event.clientY });
         }
     }, [node, showHoverImage, onHoverImageChange]);
 
@@ -178,7 +178,7 @@ const SidebarItem = memo(({ node, activeNode, onNodeClick, showHoverImage, onHov
                     </span>
                 </button>
             ) : (
-                <div className="w-full h-[30px] rounded bg-zinc-900/10 animate-pulse" />
+                <div className="w-full h-7.5 rounded bg-zinc-900/10 animate-pulse" />
             )}
         </div>
     );
@@ -266,6 +266,7 @@ const Sidebar = ({
     });
 
     const [hoveredImage, setHoveredImage] = useState(null);
+    const [hoveredPosition, setHoveredPosition] = useState(null);
     const prevExpandedGlobally = useRef(isExpandedGlobally);
     const lastHandledNodeRef = useRef(null);
 
@@ -308,25 +309,31 @@ const Sidebar = ({
         }));
     }, []);
 
-    const handleMouseEnter = useCallback((arg) => {
+    const handleMouseEnter = useCallback((arg, position) => {
         if (!arg) {
             setHoveredImage(null);
+            setHoveredPosition(null);
             return;
         }
 
         // If it's already a string (imageUrl), use it directly
         if (typeof arg === 'string') {
             setHoveredImage(arg);
+            setHoveredPosition(position || null);
             return;
         }
 
         // Otherwise assume it's a node object
         const img = arg.imageUrl || (arg.tracks && arg.tracks.length > 0 ? getTrackImage(arg.tracks[0]) : null);
-        if (img) setHoveredImage(img);
+        if (img) {
+            setHoveredImage(img);
+            setHoveredPosition(position || null);
+        }
     }, []);
 
     const handleMouseLeave = useCallback(() => {
         setHoveredImage(null);
+        setHoveredPosition(null);
     }, []);
 
     const processedWorld = useMemo(() => {
@@ -421,7 +428,7 @@ const Sidebar = ({
             </div>
 
             {/* Source Preview Modal */}
-            <SourcePreview imageUrl={hoveredImage} />
+            <SourcePreview imageUrl={hoveredImage} initialPosition={hoveredPosition} />
         </div>
     );
 };

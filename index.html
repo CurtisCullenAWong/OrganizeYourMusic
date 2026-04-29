@@ -1076,23 +1076,52 @@
 
                 <!-- Floating Spotify Player -->
                 <div id="spotify-player-container"
-                  class="hidden fixed bottom-2 left-2 z-100 animate-in fade-in slide-in-from-bottom-4 duration-300 group">
-                  <button onclick="window.stopTrack()"
-                    class="absolute top-1 right-1 w-6 h-6 bg-zinc-900/50 backdrop-blur-md rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all z-10 opacity-0 group-hover:opacity-100">
-                    <i class="fa fa-times text-[10px]"></i>
-                  </button>
-                  <iframe id="spotify-player" src="" width="420" height="90" frameborder="0" allowtransparency="true"
-                    allow="
+                  class="hidden fixed left-3 right-3 bottom-3 sm:left-4 sm:right-auto sm:bottom-4 z-1200 pointer-events-auto animate-in fade-in slide-in-from-bottom-4 duration-300 group">
+                  <div class="w-full sm:w-105 overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl backdrop-blur-xl">
+                    <div class="flex items-center justify-between gap-2 border-b border-white/5 px-3 py-2">
+                      <div class="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">
+                        <i class="fa fa-spotify text-spotify-green"></i>
+                        Spotify Player
+                      </div>
+                      <div class="flex items-center gap-2 flex-1 justify-center max-w-36 sm:max-w-44">
+                        <button onclick="window.playPreviousTrack()"
+                          class="w-7 h-7 rounded-full bg-zinc-900 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all flex items-center justify-center"
+                          aria-label="Play previous track">
+                          <i class="fa fa-step-backward text-[10px]"></i>
+                        </button>
+                        <button onclick="window.playNextTrack()"
+                          class="w-7 h-7 rounded-full bg-zinc-900 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all flex items-center justify-center"
+                          aria-label="Play next track">
+                          <i class="fa fa-step-forward text-[10px]"></i>
+                        </button>
+                        <div class="flex items-center gap-2 min-w-0 flex-1 pl-1">
+                          <i class="fa fa-volume-up text-[10px] text-zinc-500 shrink-0"></i>
+                          <input id="spotify-player-volume" type="range" min="0" max="100" value="75"
+                            class="h-1 w-full min-w-20 accent-spotify-green bg-zinc-800 rounded-full cursor-pointer" aria-label="Volume" />
+                        </div>
+                      </div>
+                      <button onclick="window.stopTrack()"
+                        class="w-6 h-6 bg-zinc-900/50 backdrop-blur-md rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all">
+                        <i class="fa fa-times text-[10px]"></i>
+                      </button>
+                    </div>
+                    <iframe id="spotify-player" src="" width="420" height="152" frameborder="0"
+                      allowtransparency="true"
+                      allow="
                           autoplay;
                           clipboard-write;
                           encrypted-media;
                           fullscreen;
                           picture-in-picture;
                         " style="
-                          width: 420px;
-                          height: 90px;
-                          max-width: calc(100vw - 32px);
-                        " class="rounded-xl"></iframe>
+                          width: calc(100% - 24px);
+                          height: 110px;
+                          max-width: 420px;
+                          display: block;
+                          margin: 0 auto;
+                          padding: 12px;
+                        " class="rounded-b-2xl"></iframe>
+                  </div>
                 </div>
 
                 <div id="track-list-view" class="flex flex-col flex-1 min-h-0">
