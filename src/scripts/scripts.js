@@ -2662,7 +2662,7 @@ function getCurrentPlayableTracks() {
   // Check which tab/subview is active and if we have a synced list for it
   let activeKey = 'main';
   const stagingPanel = document.getElementById("staging");
-  
+
   // Staging is a main tab pane using the 'active' class
   if (stagingPanel && stagingPanel.classList.contains("active")) {
     activeKey = 'staging';
@@ -4035,6 +4035,57 @@ function showTab(selector) {
     }
   }
 }
+
+// =====================================================
+// GLOBAL VOLUME CONTROL (LOG ON SLIDER MOVE ONLY)
+// =====================================================
+(function () {
+  const KEY = "oym_app_volume";
+
+  let volume = parseFloat(localStorage.getItem(KEY));
+  if (isNaN(volume)) volume = 0.75;
+
+  function apply() {
+    document.querySelectorAll("audio, video").forEach(el => {
+      el.volume = volume;
+    });
+  }
+
+  function setVolume(v) {
+    volume = Math.max(0, Math.min(1, v));
+    localStorage.setItem(KEY, volume);
+    apply();
+    window.appVolume = volume;
+  }
+
+  function onSliderInput(e) {
+    const val = parseInt(e.target.value, 10) / 100;
+
+    console.log("[APP_VOLUME] slider moved ->", val);
+
+    setVolume(val);
+  }
+
+  function init() {
+    const slider = document.getElementById("spotify-player-volume");
+
+    if (slider) {
+      slider.value = Math.round(volume * 100);
+      slider.addEventListener("input", onSliderInput);
+    }
+
+    apply();
+    window.appVolume = volume;
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+
+  window.updateAppVolume = setVolume;
+})();
 
 function saveTrack(_track) {
   return;

@@ -49,13 +49,8 @@ const SidebarItem = memo(({ node, activeNode, onNodeClick, showHoverImage, onHov
         if (isVisible) return;
         const observer = new IntersectionObserver(([entry]) => {
             if (entry.isIntersecting) {
-                // Reduced delay for snappier feel while still preventing batch spikes
-                const delay = Math.floor(Math.random() * 30); 
-                const timer = setTimeout(() => {
-                    setIsVisible(true);
-                }, delay);
+                setIsVisible(true);
                 observer.disconnect();
-                return () => clearTimeout(timer);
             }
         }, { rootMargin: '400px' }); // Increased margin for more proactive loading
 
@@ -94,11 +89,11 @@ const SidebarItem = memo(({ node, activeNode, onNodeClick, showHoverImage, onHov
                         onClick={() => onNodeClick(node)}
                         onMouseEnter={handleMouseEnter}
                         onMouseLeave={handleMouseLeave}
-                        className={`w-full text-left transition-all duration-300 flex flex-col group/btn relative overflow-hidden ${isCompact ? 'p-1 gap-1 rounded-lg' : 'p-2 gap-2 rounded-xl'} ${isActive
+                        className={`w-full text-left transition-[transform,background-color,ring,shadow] duration-200 flex flex-col group/btn relative overflow-hidden ${isCompact ? 'p-1 gap-1 rounded-lg' : 'p-2 gap-2 rounded-xl'} ${isActive
                             ? 'bg-zinc-800 ring-2 ring-spotify-green shadow-xl scale-[0.98]'
                             : 'hover:bg-zinc-800/60 hover:scale-[1.01]'
                             }`}
-                        style={{ willChange: 'transform, background-color' }}
+                        style={{ willChange: 'transform, background-color', transform: 'translateZ(0)' }}
                     >
                         {isActive && (
                             <div className="absolute inset-0 bg-spotify-green/10 blur-2xl pointer-events-none animate-pulse"></div>
@@ -119,8 +114,8 @@ const SidebarItem = memo(({ node, activeNode, onNodeClick, showHoverImage, onHov
                                             const bg = e.target.previousSibling;
                                             if (bg) bg.classList.remove('opacity-0');
                                         }}
-                                        className="relative z-10 w-full h-full object-contain transition-all duration-300 opacity-0 group-hover/btn:scale-105"
-                                        style={{ willChange: 'transform, opacity' }}
+                                        className="relative z-10 w-full h-full object-contain transition-[transform,opacity] duration-200 opacity-0 group-hover/btn:scale-105"
+                                        style={{ willChange: 'transform, opacity', transform: 'translateZ(0)' }}
                                     />
                                     {/* Blurred background - Defer display until main image loaded */}
                                     <img
@@ -164,10 +159,11 @@ const SidebarItem = memo(({ node, activeNode, onNodeClick, showHoverImage, onHov
                     onClick={() => onNodeClick(node)}
                     onMouseEnter={handleMouseEnter}
                     onMouseLeave={handleMouseLeave}
-                    className={`w-full text-left px-3 py-1.5 rounded-md text-[11px] font-medium transition-all flex items-center justify-between group/btn gap-2 overflow-hidden ${isActive
+                    className={`w-full text-left px-3 py-1.5 rounded-md text-[11px] font-medium transition-[background-color,color,shadow] duration-200 flex items-center justify-between group/btn gap-2 overflow-hidden ${isActive
                         ? 'bg-spotify-green text-black shadow-[0_4px_12px_rgba(29,185,84,0.3)]'
                         : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
                         }`}
+                    style={{ transform: 'translateZ(0)' }}
                 >
                     <div className="flex-1 min-w-0 overflow-hidden">
                         <TextCarousel isHovered={isHovered}>{node.name}</TextCarousel>
@@ -219,16 +215,18 @@ const SidebarSection = React.memo(({
                     </div>
                     <span className="transition-colors duration-200 group-hover/header:text-white">{sectionName}</span>
                 </div>
-                <i className={`fa fa-chevron-right text-[7px] transition-transform duration-300 ${isExpanded ? 'rotate-90 text-zinc-400' : 'text-zinc-600'}`}></i>
+                <i className={`fa fa-chevron-right text-[7px] transition-transform duration-200 ${isExpanded ? 'rotate-90 text-zinc-400' : 'text-zinc-600'}`}></i>
             </button>
 
             <div
-                className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0 overflow-hidden'}`}
+                className={`grid transition-[grid-template-rows,opacity] duration-200 ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
                 style={{
                     willChange: 'grid-template-rows, opacity',
-                    // Use content-visibility: hidden for extreme performance when collapsed
-                    contentVisibility: isExpanded ? 'visible' : 'hidden',
-                    display: !isExpanded && !hasBeenOpened ? 'none' : 'grid'
+                    transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
+                    // Use auto instead of hidden during transition to prevent layout jumps and allow animation
+                    contentVisibility: hasBeenOpened ? 'auto' : 'visible',
+                    contain: 'paint layout',
+                    overflow: 'hidden'
                 }}
             >
                 <div className={`overflow-hidden px-1 ${viewMode === 'grid' ? 'grid grid-cols-2 gap-2 pt-2 pb-3' : viewMode === 'compact' ? 'grid grid-cols-3 gap-1.5 pt-2 pb-3' : 'space-y-0.5 py-1'}`}>
