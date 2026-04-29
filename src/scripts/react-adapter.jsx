@@ -184,7 +184,7 @@ window.renderTrackTable = (tracks) => {
 
     if (!trackTableRoot || !container.isConnected) {
         if (trackTableRoot) {
-            try { trackTableRoot.unmount(); } catch (e) { }
+            try { trackTableRoot.unmount(); } catch (e) { console.debug("Unmount error:", e); }
         }
         trackTableRoot = createRoot(container);
     }
@@ -205,7 +205,7 @@ window.renderPlaylistTrackTable = (tracks) => {
 
     if (!playlistTableRoot || !container.isConnected) {
         if (playlistTableRoot) {
-            try { playlistTableRoot.unmount(); } catch (e) { }
+            try { playlistTableRoot.unmount(); } catch (e) { console.debug("Unmount error:", e); }
         }
         playlistTableRoot = createRoot(container);
     }
@@ -230,7 +230,7 @@ window.renderStagingTable = (tracks) => {
 
     if (!stagingTableRoot || !container.isConnected) {
         if (stagingTableRoot) {
-            try { stagingTableRoot.unmount(); } catch (e) { }
+            try { stagingTableRoot.unmount(); } catch (e) { console.debug("Unmount error:", e); }
         }
         stagingTableRoot = createRoot(container);
     }
@@ -246,7 +246,7 @@ window.renderSidebar = (theWorld) => {
 
     if (!sidebarRoot || !container.isConnected) {
         if (sidebarRoot) {
-            try { sidebarRoot.unmount(); } catch (e) { }
+            try { sidebarRoot.unmount(); } catch (e) { console.debug("Unmount error:", e); }
         }
         sidebarRoot = createRoot(container);
     }

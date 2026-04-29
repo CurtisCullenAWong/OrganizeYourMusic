@@ -33,8 +33,49 @@ import normalizeSpotifyTracks from "./spotifyTransformer.js";
 
   document.addEventListener('mousemove', (e) => {
     if (!tooltip.classList.contains('hidden')) {
-      tooltip.style.left = e.clientX + 'px';
-      tooltip.style.top = e.clientY + 'px';
+      const rect = tooltip.getBoundingClientRect();
+      const winW = window.innerWidth;
+      const winH = window.innerHeight;
+      const margin = 25;
+
+      let left = e.clientX;
+      let top = e.clientY;
+      
+      // Vertical check: Flip to bottom if hitting top of page
+      let transY = '-100%';
+      let moveY = -margin;
+      
+      if (e.clientY - rect.height - margin < 0) {
+        transY = '0%';
+        moveY = margin;
+        arrow.style.bottom = 'auto';
+        arrow.style.top = '-4px';
+        arrow.style.borderRight = 'none';
+        arrow.style.borderBottom = 'none';
+        arrow.style.borderLeft = '1px solid #3f3f46'; // zinc-700
+        arrow.style.borderTop = '1px solid #3f3f46';
+      } else {
+        transY = '-100%';
+        moveY = -margin;
+        arrow.style.top = 'auto';
+        arrow.style.bottom = '-4px';
+        arrow.style.borderLeft = 'none';
+        arrow.style.borderTop = 'none';
+        arrow.style.borderRight = '1px solid #3f3f46';
+        arrow.style.borderBottom = '1px solid #3f3f46';
+      }
+
+      // Horizontal check: Clamp to viewport edges
+      const halfWidth = rect.width / 2;
+      if (left - halfWidth < 10) {
+        left = halfWidth + 10;
+      } else if (left + halfWidth > winW - 10) {
+        left = winW - halfWidth - 10;
+      }
+
+      tooltip.style.left = left + 'px';
+      tooltip.style.top = top + 'px';
+      tooltip.style.transform = `translate(-50%, ${transY}) translateY(${moveY}px)`;
     }
   });
 
@@ -255,6 +296,7 @@ function isSpotifyScopeError(resp) {
     try {
       payload = JSON.parse(resp.responseText);
     } catch (e) {
+      console.warn("JSON parse error for responseText", e);
       payload = null;
     }
   }
@@ -363,9 +405,11 @@ async function readSpotifyErrorPayload(response) {
     try {
       return JSON.parse(text);
     } catch (e) {
+      console.warn("Failed to parse error text as JSON", e);
       return { error: { message: text } };
     }
   } catch (e) {
+    console.error("Failed to read error payload from response", e);
     return null;
   }
 }
@@ -2243,7 +2287,7 @@ function authorizeUser() {
   }
 
   var scopes =
-    "user-library-read user-read-email playlist-read-private playlist-read-collaborative playlist-modify-public";
+    "user-library-read user-read-email playlist-read-private playlist-read-collaborative playlist-modify-public streaming user-read-playback-state user-modify-playback-state user-read-private";
   var codeVerifier = generateRandomString(64);
   window.localStorage.setItem("code_verifier", codeVerifier);
 
@@ -2717,15 +2761,200 @@ function playNextTrack() {
 }
 
 function playPreviousTrack() {
-  playAdjacentTrack(-1);
+  if (spotifyPlayer) {
+    spotifyPlayer.getCurrentState().then(state => {
+      // If played for more than 3 seconds, just restart the song
+      if (state && state.position > 3000) {
+        spotifyPlayer.seek(0).catch(err => console.error("Seek error:", err));
+      } else {
+        playAdjacentTrack(-1);
+      }
+    });
+  } else {
+    playAdjacentTrack(-1);
+  }
 }
 
 
-function playTrack(track) {
-  const player = document.getElementById("spotify-player");
-  const container = document.getElementById("spotify-player-container");
-  const trackId = getTrackId(track);
+let spotifyPlayer = null;
+let spotifyDeviceId = null;
+let playbackProgressTimer = null;
 
+function updateSDKPlayerUI(state) {
+  if (!state || !nowPlaying) {
+    const container = document.getElementById("spotify-player-container");
+    if (container) container.classList.add("hidden");
+    return;
+  }
+
+  const {
+    current_track,
+    position,
+    duration,
+    paused
+  } = state.track_window;
+
+  const track = current_track;
+  const container = document.getElementById("spotify-player-container");
+  if (container) container.classList.remove("hidden");
+
+  const nameEl = document.getElementById("sdk-track-name");
+  const artistEl = document.getElementById("sdk-track-artist");
+  const imageEl = document.getElementById("sdk-track-image");
+  const placeholderEl = document.getElementById("sdk-art-placeholder");
+  const playPauseBtn = document.getElementById("sdk-play-pause");
+  const progressEl = document.getElementById("sdk-playback-progress");
+  const timeEl = document.getElementById("sdk-playback-time");
+  const rangeEl = document.getElementById("sdk-playback-range");
+
+  if (nameEl) nameEl.textContent = track.name;
+  if (artistEl) artistEl.textContent = track.artists.map(a => a.name).join(", ");
+
+  if (imageEl && track.album.images.length > 0) {
+    imageEl.src = track.album.images[0].url;
+    imageEl.classList.remove("hidden");
+    if (placeholderEl) placeholderEl.classList.add("hidden");
+  } else if (imageEl) {
+    imageEl.classList.add("hidden");
+    if (placeholderEl) placeholderEl.classList.remove("hidden");
+  }
+
+  if (playPauseBtn) {
+    playPauseBtn.innerHTML = state.paused ? '<i class="fa fa-play pl-0.5"></i>' : '<i class="fa fa-pause"></i>';
+    playPauseBtn.onclick = () => spotifyPlayer.togglePlay();
+  }
+
+  // Handle Seek Range
+  if (rangeEl) {
+    rangeEl.max = state.duration;
+    rangeEl.value = state.position;
+    if (!rangeEl.dataset.init) {
+      const tooltip = document.getElementById("sdk-seek-tooltip");
+
+      const updateTooltip = (e) => {
+        if (!tooltip) return;
+        const rect = rangeEl.getBoundingClientRect();
+        // Support both mouse events (clientX) and direct range input (value)
+        let percent;
+        if (e.type === 'input') {
+          percent = e.target.value / e.target.max;
+        } else {
+          const offsetX = e.clientX - rect.left;
+          percent = Math.max(0, Math.min(1, offsetX / rect.width));
+        }
+
+        const seekMs = percent * state.duration;
+        const minutes = Math.floor(seekMs / 60000);
+        const seconds = Math.floor((seekMs % 60000) / 1000);
+
+        tooltip.textContent = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+        tooltip.style.left = `${percent * 100}%`;
+        tooltip.style.opacity = "1";
+      };
+
+      rangeEl.addEventListener("mousemove", updateTooltip);
+      rangeEl.addEventListener("input", updateTooltip);
+      rangeEl.addEventListener("mouseleave", () => {
+        if (tooltip) tooltip.style.opacity = "0";
+      });
+
+      rangeEl.addEventListener("change", (e) => {
+        const seekMs = parseInt(e.target.value, 10);
+        if (spotifyPlayer) spotifyPlayer.seek(seekMs).catch(err => console.error("Seek error:", err));
+      });
+      // Prevent automatic progress updates while user is dragging
+      rangeEl.addEventListener("input", () => {
+        rangeEl.dataset.dragging = "true";
+      });
+      rangeEl.addEventListener("change", () => {
+        delete rangeEl.dataset.dragging;
+        if (tooltip) tooltip.style.opacity = "0";
+      });
+      rangeEl.dataset.init = "true";
+    }
+  }
+
+  // Handle Progress
+  if (playbackProgressTimer) clearInterval(playbackProgressTimer);
+
+  const updateProgress = (currentPos) => {
+    if (progressEl) {
+      const percent = (currentPos / state.duration) * 100;
+      progressEl.style.width = `${percent}%`;
+    }
+    if (rangeEl && !rangeEl.dataset.dragging) {
+      rangeEl.value = currentPos;
+    }
+    if (timeEl) {
+      const minutes = Math.floor(currentPos / 60000);
+      const seconds = Math.floor((currentPos % 60000) / 1000);
+      timeEl.textContent = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+    }
+  };
+
+  updateProgress(state.position);
+
+  if (!state.paused) {
+    let internalPos = state.position;
+    playbackProgressTimer = setInterval(() => {
+      internalPos += 1000;
+      updateProgress(internalPos);
+    }, 1000);
+  }
+}
+
+
+window.onSpotifyWebPlaybackSDKReady = () => {
+  const initialVolume = (window.appVolume !== undefined && window.appVolume !== null) ? window.appVolume : 0.75;
+  const player = new Spotify.Player({
+    name: 'Organize Your Music',
+    getOAuthToken: cb => { cb(accessToken); },
+    volume: initialVolume
+  });
+
+  spotifyPlayer = player;
+
+  player.addListener('initialization_error', ({ message }) => console.error('Initialization Error:', message));
+  player.addListener('authentication_error', ({ message }) => {
+    console.error('Authentication Error:', message);
+  });
+  player.addListener('account_error', ({ message }) => console.error('Account Error:', message));
+  player.addListener('playback_error', ({ message }) => console.error('Playback Error:', message));
+
+  player.addListener('player_state_changed', state => {
+    updateSDKPlayerUI(state);
+
+    // Sync nowPlaying if changed externally or internally
+    if (state && state.track_window.current_track) {
+      const track = state.track_window.current_track;
+      const id = track.id || track.uri.split(':').pop();
+      if (!nowPlaying || getTrackId(nowPlaying) !== id) {
+        // Find the track in our local data to get full metadata if possible
+        const localTrack = window.normalizedTrackData.find(t => getTrackId(t) === id);
+        nowPlaying = localTrack || { id: id, details: { name: track.name, artists: track.artists } };
+        window.nowPlaying = nowPlaying;
+        window.dispatchEvent(new Event("oym-sync-table"));
+      }
+    }
+  });
+
+  player.addListener('ready', ({ device_id }) => {
+    spotifyDeviceId = device_id;
+    // Ensure volume is synced immediately upon being ready
+    const syncVolume = (window.appVolume !== undefined && window.appVolume !== null) ? window.appVolume : 0.75;
+    player.setVolume(syncVolume).catch(e => console.error("Error syncing initial volume:", e));
+  });
+
+  player.addListener('not_ready', ({ device_id }) => {
+    console.log('Device ID has gone offline', device_id);
+    spotifyDeviceId = null;
+  });
+
+  player.connect();
+};
+
+async function playTrack(track) {
+  const trackId = getTrackId(track);
   if (!trackId) return;
 
   const normalizedTrack = {
@@ -2738,34 +2967,57 @@ function playTrack(track) {
   };
 
   if (trackId !== getTrackId(nowPlaying)) {
-    if (player && container) {
-      player.src = `https://open.spotify.com/embed/track/${trackId}?utm_source=generator&theme=0&autoplay=1&auto_play=true`;
-      container.classList.remove("hidden");
+    if (spotifyDeviceId) {
+      try {
+        const response = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${spotifyDeviceId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ uris: [`spotify:track:${trackId}`] }),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error("Spotify Playback Error:", errorData);
+          return;
+        }
+
+        const container = document.getElementById("spotify-player-container");
+        if (container) container.classList.remove("hidden");
+
+        nowPlaying = normalizedTrack;
+        window.nowPlaying = normalizedTrack;
+        window.dispatchEvent(new Event("oym-sync-table"));
+      } catch (e) {
+        console.error("Error playing track via SDK:", e);
+      }
+    } else {
+      console.warn("Spotify SDK not ready yet. Playback may be delayed or unavailable.");
     }
-    nowPlaying = normalizedTrack;
-    window.nowPlaying = normalizedTrack;
-    window.dispatchEvent(new Event("oym-sync-table"));
   } else {
-    stopTrack();
+    if (spotifyPlayer) spotifyPlayer.togglePlay();
   }
 }
 
 function stopTrack() {
+  if (spotifyPlayer) {
+    spotifyPlayer.pause();
+  }
   nowPlaying = null;
   window.nowPlaying = null;
   const container = document.getElementById("spotify-player-container");
   if (container) {
     container.classList.add("hidden");
   }
-  const player = document.getElementById("spotify-player");
-  if (player) {
-    player.src = "";
-  }
+  if (playbackProgressTimer) clearInterval(playbackProgressTimer);
   window.dispatchEvent(new Event("oym-sync-table"));
   document.querySelectorAll(".playing").forEach(function (el) {
     el.classList.remove("playing");
   });
 }
+
 
 window.playTrack = playTrack;
 window.stopTrack = stopTrack;
@@ -4042,8 +4294,23 @@ function showTab(selector) {
 (function () {
   const KEY = "oym_app_volume";
 
-  let volume = parseFloat(localStorage.getItem(KEY));
-  if (isNaN(volume)) volume = 0.75;
+  // Initial source of truth: LocalStorage -> Slider DOM -> Default
+  let volume;
+  const stored = localStorage.getItem(KEY);
+  const slider = document.getElementById("spotify-player-volume");
+
+  if (stored !== null) {
+    volume = parseFloat(stored);
+  } else if (slider) {
+    volume = parseInt(slider.value, 10) / 100;
+  }
+
+  if (isNaN(volume) || volume === null || volume === undefined) {
+    volume = 0.75;
+  }
+
+  // Set global immediately so other scripts can see it
+  window.appVolume = volume;
 
   function apply() {
     document.querySelectorAll("audio, video").forEach(el => {
@@ -4051,31 +4318,60 @@ function showTab(selector) {
     });
   }
 
+  let lastVolume = volume > 0 ? volume : 0.75;
+
+  function updateMuteIcon() {
+    const icon = document.getElementById("spotify-player-mute");
+    if (icon) {
+      if (volume === 0) {
+        icon.classList.remove("fa-volume-up");
+        icon.classList.add("fa-volume-off");
+      } else {
+        icon.classList.remove("fa-volume-off");
+        icon.classList.add("fa-volume-up");
+      }
+    }
+  }
+
+  function toggleMute() {
+    if (volume > 0) {
+      lastVolume = volume;
+      setVolume(0);
+    } else {
+      setVolume(lastVolume);
+    }
+    const s = document.getElementById("spotify-player-volume");
+    if (s) s.value = Math.round(volume * 100);
+  }
+
   function setVolume(v) {
     volume = Math.max(0, Math.min(1, v));
     localStorage.setItem(KEY, volume);
     apply();
+    if (spotifyPlayer) {
+      spotifyPlayer.setVolume(volume).catch(e => console.error("Error setting volume:", e));
+    }
     window.appVolume = volume;
+    updateMuteIcon();
   }
 
   function onSliderInput(e) {
     const val = parseInt(e.target.value, 10) / 100;
-
-    console.log("[APP_VOLUME] slider moved ->", val);
-
     setVolume(val);
   }
 
   function init() {
-    const slider = document.getElementById("spotify-player-volume");
-
-    if (slider) {
-      slider.value = Math.round(volume * 100);
-      slider.addEventListener("input", onSliderInput);
+    const s = document.getElementById("spotify-player-volume");
+    if (s) {
+      s.value = Math.round(volume * 100);
+      s.addEventListener("input", onSliderInput);
     }
-
+    const m = document.getElementById("spotify-player-mute");
+    if (m) {
+      m.onclick = toggleMute;
+    }
     apply();
-    window.appVolume = volume;
+    updateMuteIcon();
   }
 
   if (document.readyState === "loading") {
@@ -4085,6 +4381,123 @@ function showTab(selector) {
   }
 
   window.updateAppVolume = setVolume;
+})();
+
+// =====================================================
+// DRAGGABLE PLAYER SYSTEM
+// =====================================================
+(function () {
+  const POS_KEY = "oym_player_pos";
+
+  function initDraggable() {
+    const player = document.getElementById("spotify-player-container");
+    const handle = document.getElementById("spotify-player-handle");
+
+    if (!player || !handle) return;
+
+    let offsetX = 0, offsetY = 0;
+    let isDragging = false;
+
+    // Load saved position or default to bottom-right
+    const savedPos = localStorage.getItem(POS_KEY);
+    if (savedPos) {
+      try {
+        const { left, top } = JSON.parse(savedPos);
+        player.style.left = left + "px";
+        player.style.top = top + "px";
+        player.style.bottom = "auto";
+        player.style.right = "auto";
+      } catch (e) {
+        player.style.bottom = "24px";
+        player.style.right = "24px";
+      }
+    } else {
+      player.style.bottom = "24px";
+      player.style.right = "24px";
+    }
+
+    handle.onmousedown = dragMouseDown;
+    handle.ontouchstart = dragMouseDown;
+
+    function dragMouseDown(e) {
+      const target = e.target;
+      if (target.closest('button, input, [role="button"]')) {
+        return;
+      }
+
+      const event = e.type === 'touchstart' ? e.touches[0] : e;
+      const rect = player.getBoundingClientRect();
+
+      isDragging = true;
+      offsetX = event.clientX - rect.left;
+      offsetY = event.clientY - rect.top;
+
+      document.onmouseup = closeDragElement;
+      document.onmousemove = elementDrag;
+      document.ontouchend = closeDragElement;
+      document.ontouchmove = elementDrag;
+
+      player.style.transition = 'none';
+    }
+
+    function elementDrag(e) {
+      if (!isDragging) return;
+      const event = e.type === 'touchmove' ? e.touches[0] : e;
+
+      player.style.bottom = 'auto';
+      player.style.right = 'auto';
+      player.style.left = (event.clientX - offsetX) + "px";
+      player.style.top = (event.clientY - offsetY) + "px";
+    }
+
+    function closeDragElement() {
+      if (!isDragging) return;
+      isDragging = false;
+      document.onmouseup = null;
+      document.onmousemove = null;
+      document.ontouchend = null;
+      document.ontouchmove = null;
+      snapToEdges();
+    }
+
+    function snapToEdges() {
+      const margin = 24;
+      const rect = player.getBoundingClientRect();
+      const winWidth = window.innerWidth;
+      const winHeight = window.innerHeight;
+
+      // Define 9 snap points (3x3 grid: Left, Center, Right x Top, Center, Bottom)
+      const xPoints = [margin, winWidth / 2 - rect.width / 2, winWidth - rect.width - margin];
+      const yPoints = [margin, winHeight / 2 - rect.height / 2, winHeight - rect.height - margin];
+
+      // Find the closest point in each dimension
+      let targetLeft = xPoints.reduce((prev, curr) =>
+        Math.abs(curr - rect.left) < Math.abs(prev - rect.left) ? curr : prev
+      );
+      let targetTop = yPoints.reduce((prev, curr) =>
+        Math.abs(curr - rect.top) < Math.abs(prev - rect.top) ? curr : prev
+      );
+
+      // Re-constrain to current window size
+      targetLeft = Math.max(margin, Math.min(winWidth - rect.width - margin, targetLeft));
+      targetTop = Math.max(margin, Math.min(winHeight - rect.height - margin, targetTop));
+
+      player.style.transition = 'all 0.5s cubic-bezier(0.19, 1, 0.22, 1)';
+      player.style.left = targetLeft + "px";
+      player.style.top = targetTop + "px";
+
+      // Persist the snapped position
+      localStorage.setItem(POS_KEY, JSON.stringify({ left: targetLeft, top: targetTop }));
+    }
+
+    window.addEventListener('resize', snapToEdges);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initDraggable);
+  } else {
+    initDraggable();
+  }
 })();
 
 function saveTrack(_track) {
