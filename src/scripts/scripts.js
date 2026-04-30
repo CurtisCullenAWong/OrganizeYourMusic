@@ -130,6 +130,7 @@ var configuredSpotifyMeTracksUrl = sanitizeInjectedValue(window.SPOTIFY_ME_TRACK
 var configuredSpotifyMePlaylistsUrl = sanitizeInjectedValue(window.SPOTIFY_ME_PLAYLISTS_URL);
 var configuredSpotifyUsersUrl = sanitizeInjectedValue(window.SPOTIFY_USERS_URL);
 var configuredSpotifyPlaylistsUrl = sanitizeInjectedValue(window.SPOTIFY_PLAYLISTS_URL);
+var configuredSpotifyPlayerUrl = sanitizeInjectedValue(window.SPOTIFY_PLAYER_URL);
 var configuredSpotifyAudioFeaturesUrl = sanitizeInjectedValue(window.SPOTIFY_AUDIO_FEATURES_URL);
 var configuredSpotifyArtistsUrl = sanitizeInjectedValue(window.SPOTIFY_ARTISTS_URL);
 var configuredSpotifyAlbumsUrl = sanitizeInjectedValue(window.SPOTIFY_ALBUMS_URL);
@@ -140,9 +141,6 @@ function getSpotifyProxyCandidates() {
   var candidates = [];
   if (configuredSpotifyProxyUrl) {
     candidates.push(configuredSpotifyProxyUrl);
-  }
-  if (candidates.indexOf(DEFAULT_SPOTIFY_PROXY_PATH) === -1) {
-    candidates.push(DEFAULT_SPOTIFY_PROXY_PATH);
   }
   return candidates;
 }
@@ -165,12 +163,23 @@ function hydrateActiveSpotifyClientId() {
   var configuredIds = getConfiguredSpotifyClientIds();
   var storedClientId = window.localStorage.getItem(ACTIVE_CLIENT_ID_STORAGE_KEY);
 
+  // If the client ID in storage doesn't match our primary configured ID, 
+  // we should treat it as a change and clear tokens to avoid 403s.
+  var primaryId = configuredIds[0] || "";
+  if (storedClientId && storedClientId !== primaryId) {
+    console.log("Client ID change detected. Clearing tokens...");
+    window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+    window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+    window.localStorage.removeItem("code_verifier");
+    accessToken = null;
+  }
+
   if (storedClientId && configuredIds.indexOf(storedClientId) !== -1) {
     activeSpotifyClientId = storedClientId;
     return;
   }
 
-  activeSpotifyClientId = configuredIds[0] || "";
+  activeSpotifyClientId = primaryId;
 
   if (activeSpotifyClientId) {
     window.localStorage.setItem(
@@ -2546,7 +2555,9 @@ class SpotifyDataFetcher {
           }
 
           if (!response) {
-            throw directNetworkError || lastNetworkError || new Error("Spotify request failed");
+            const finalErr = directNetworkError || lastNetworkError || new Error("Spotify request failed");
+            restartAuthorization(finalErr.message);
+            throw finalErr;
           }
 
           if (response.status === 429) {
@@ -2610,7 +2621,7 @@ class SpotifyDataFetcher {
                 "Access Forbidden (403). If using a custom Client ID, ensure your Spotify email is whitelisted in the Developer Dashboard (Users and Access).";
             }
             restartAuthorization(errorMsg);
-            return { type: "error", message: "Auth expired" };
+            return { type: "error", message: errorMsg };
           }
 
           if (!response.ok) {
@@ -2643,7 +2654,8 @@ class SpotifyDataFetcher {
             };
           }
 
-          const json = await response.json();
+          const text = await response.text();
+          const json = text ? JSON.parse(text) : {};
           return { type: "success", data: json };
         } catch (error) {
           if (error.name === "AbortError") {
@@ -2904,7 +2916,15 @@ function updateSDKPlayerUI(state) {
 }
 
 
-window.onSpotifyWebPlaybackSDKReady = () => {
+function initializeSpotifyPlayer() {
+  if (!accessToken || !window.Spotify) {
+    return;
+  }
+
+  if (spotifyPlayer) {
+    return;
+  }
+
   const initialVolume = (window.appVolume !== undefined && window.appVolume !== null) ? window.appVolume : 0.75;
   const player = new Spotify.Player({
     name: 'Organize Your Music',
@@ -2921,11 +2941,29 @@ window.onSpotifyWebPlaybackSDKReady = () => {
   player.addListener('account_error', ({ message }) => console.error('Account Error:', message));
   player.addListener('playback_error', ({ message }) => console.error('Playback Error:', message));
 
+  let lastPlayerState = null;
   player.addListener('player_state_changed', state => {
+    if (!state) return;
+
+    // Autoplay logic: detect when a track has naturally ended
+    // A track has ended if:
+    // 1. We had a previous state
+    // 2. The previous state was NOT paused
+    // 3. The current state IS paused
+    // 4. The position is 0
+    // 5. The track ID is the same (meaning it hasn't already switched to something else)
+    if (lastPlayerState && !lastPlayerState.paused && state.paused && state.position === 0) {
+      if (lastPlayerState.track_window.current_track.id === state.track_window.current_track.id) {
+        console.log("Track finished. Autoplaying next track...");
+        playNextTrack();
+      }
+    }
+    lastPlayerState = state;
+
     updateSDKPlayerUI(state);
 
     // Sync nowPlaying if changed externally or internally
-    if (state && state.track_window.current_track) {
+    if (state.track_window.current_track) {
       const track = state.track_window.current_track;
       const id = track.id || track.uri.split(':').pop();
       if (!nowPlaying || getTrackId(nowPlaying) !== id) {
@@ -2951,6 +2989,10 @@ window.onSpotifyWebPlaybackSDKReady = () => {
   });
 
   player.connect();
+}
+
+window.onSpotifyWebPlaybackSDKReady = () => {
+  initializeSpotifyPlayer();
 };
 
 async function playTrack(track) {
@@ -2969,18 +3011,11 @@ async function playTrack(track) {
   if (trackId !== getTrackId(nowPlaying)) {
     if (spotifyDeviceId) {
       try {
-        const response = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${spotifyDeviceId}`, {
-          method: 'PUT',
-          body: JSON.stringify({ uris: [`spotify:track:${trackId}`] }),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken}`
-          },
-        });
+        const url = `${configuredSpotifyPlayerUrl}?device_id=${spotifyDeviceId}`;
+        const responseData = await spotifyFetcher.apiCall(url, 'PUT', { uris: [`spotify:track:${trackId}`] });
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          console.error("Spotify Playback Error:", errorData);
+        if (!responseData) {
+          console.error("Spotify Playback Error: No response data");
           return;
         }
 
@@ -4037,6 +4072,9 @@ document.addEventListener("DOMContentLoaded", function () {
       selectionState.classList.remove("hidden");
       selectionState.style.display = "block";
     }
+
+    // Try to initialize Spotify player now that we (presumably) have a token
+    initializeSpotifyPlayer();
 
     // Hide sidebar and toggle button on home screen
     var sidebar = document.getElementById("sidebar");

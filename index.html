@@ -37,7 +37,7 @@
   <link rel="icon" type="image/x-icon" href="/favicon.ico" />
   <link rel="icon" type="image/png" href="/favicon.png" />
 
-  <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css" />
+  <!-- <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css" /> -->
 
   <link rel="stylesheet" href="/src/index.css" />
 
@@ -958,6 +958,7 @@
                 accelerometer;
                 autoplay;
                 clipboard-write;
+                compute-pressure;
                 encrypted-media;
                 gyroscope;
                 picture-in-picture;
@@ -1418,65 +1419,22 @@
 
   <script type="module" src="/src/scripts/react-adapter.jsx"></script>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
-  <script type="text/javascript">
-    // Configuration injected by Vite during build/dev
-    const getInjected = (val, fallback) => {
-      if (!val || val.startsWith("%VITE_") || val.startsWith("%"))
-        return fallback;
-      return val;
-    };
-    window.SPOTIFY_CLIENT_ID = getInjected(
-      "%VITE_SPOTIFY_CLIENT_ID%",
-      "1c81d0d03de148c083744f5cce782ef7"
-    );
-    window.SPOTIFY_REDIRECT_URI = getInjected(
-      "%VITE_SPOTIFY_REDIRECT_URI%",
-      "http://127.0.0.1:5174/"
-    );
-    window.SPOTIFY_PROXY_URL = getInjected(
-      "%VITE_SPOTIFY_PROXY_URL%",
-      "/api/spotify"
-    );
-    window.SPOTIFY_AUTH_URL = getInjected(
-      "%VITE_SPOTIFY_AUTH_URL%",
-      "https://accounts.spotify.com/authorize"
-    );
-    window.SPOTIFY_TOKEN_URL = getInjected(
-      "%VITE_SPOTIFY_TOKEN_URL%",
-      "https://accounts.spotify.com/api/token"
-    );
-    window.SPOTIFY_ME_URL = getInjected(
-      "%VITE_SPOTIFY_ME_URL%",
-      "https://api.spotify.com/v1/me"
-    );
-    window.SPOTIFY_ME_TRACKS_URL = getInjected(
-      "%VITE_SPOTIFY_ME_TRACKS_URL%",
-      "https://api.spotify.com/v1/me/tracks"
-    );
-    window.SPOTIFY_ME_PLAYLISTS_URL = getInjected(
-      "%VITE_SPOTIFY_ME_PLAYLISTS_URL%",
-      "https://api.spotify.com/v1/me/playlists"
-    );
-    window.SPOTIFY_USERS_URL = getInjected(
-      "%VITE_SPOTIFY_USERS_URL%",
-      "https://api.spotify.com/v1/users"
-    );
-    window.SPOTIFY_PLAYLISTS_URL = getInjected(
-      "%VITE_SPOTIFY_PLAYLISTS_URL%",
-      "https://api.spotify.com/v1/playlists"
-    );
-    window.SPOTIFY_AUDIO_FEATURES_URL = getInjected(
-      "%VITE_SPOTIFY_AUDIO_FEATURES_URL%",
-      "https://api.spotify.com/v1/audio-features"
-    );
-    window.SPOTIFY_ARTISTS_URL = getInjected(
-      "%VITE_SPOTIFY_ARTISTS_URL%",
-      "https://api.spotify.com/v1/artists"
-    );
-    window.SPOTIFY_ALBUMS_URL = getInjected(
-      "%VITE_SPOTIFY_ALBUMS_URL%",
-      "https://api.spotify.com/v1/albums"
-    );
+  <script type="module">
+    // Configuration loaded from environment via Vite
+    window.SPOTIFY_CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
+    window.SPOTIFY_REDIRECT_URI = import.meta.env.VITE_SPOTIFY_REDIRECT_URI;
+    window.SPOTIFY_PROXY_URL = import.meta.env.VITE_SPOTIFY_PROXY_URL;
+    window.SPOTIFY_AUTH_URL = import.meta.env.VITE_SPOTIFY_AUTH_URL;
+    window.SPOTIFY_TOKEN_URL = import.meta.env.VITE_SPOTIFY_TOKEN_URL;
+    window.SPOTIFY_ME_URL = import.meta.env.VITE_SPOTIFY_ME_URL;
+    window.SPOTIFY_ME_TRACKS_URL = import.meta.env.VITE_SPOTIFY_ME_TRACKS_URL;
+    window.SPOTIFY_ME_PLAYLISTS_URL = import.meta.env.VITE_SPOTIFY_ME_PLAYLISTS_URL;
+    window.SPOTIFY_USERS_URL = import.meta.env.VITE_SPOTIFY_USERS_URL;
+    window.SPOTIFY_PLAYLISTS_URL = import.meta.env.VITE_SPOTIFY_PLAYLISTS_URL;
+    window.SPOTIFY_PLAYER_URL = import.meta.env.VITE_SPOTIFY_PLAYER_URL;
+    window.SPOTIFY_AUDIO_FEATURES_URL = import.meta.env.VITE_SPOTIFY_AUDIO_FEATURES_URL;
+    window.SPOTIFY_ARTISTS_URL = import.meta.env.VITE_SPOTIFY_ARTISTS_URL;
+    window.SPOTIFY_ALBUMS_URL = import.meta.env.VITE_SPOTIFY_ALBUMS_URL;
 
     window.isLocal =
       window.location.hostname === "localhost" ||
