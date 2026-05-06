@@ -40,11 +40,11 @@ import normalizeSpotifyTracks from "./spotifyTransformer.js";
 
       let left = e.clientX;
       let top = e.clientY;
-      
+
       // Vertical check: Flip to bottom if hitting top of page
       let transY = '-100%';
       let moveY = -margin;
-      
+
       if (e.clientY - rect.height - margin < 0) {
         transY = '0%';
         moveY = margin;
@@ -122,27 +122,19 @@ var configuredFallbackSpotifyClientId = sanitizeInjectedValue(
 var configuredSpotifyRedirectUri = sanitizeInjectedValue(
   window.SPOTIFY_REDIRECT_URI,
 );
-var configuredSpotifyProxyUrl = sanitizeInjectedValue(window.SPOTIFY_PROXY_URL);
 var configuredSpotifyAuthUrl = sanitizeInjectedValue(window.SPOTIFY_AUTH_URL);
 var configuredSpotifyTokenUrl = sanitizeInjectedValue(window.SPOTIFY_TOKEN_URL);
 var configuredSpotifyMeUrl = sanitizeInjectedValue(window.SPOTIFY_ME_URL);
 var configuredSpotifyMeTracksUrl = sanitizeInjectedValue(window.SPOTIFY_ME_TRACKS_URL);
-var configuredSpotifyMePlaylistsUrl = sanitizeInjectedValue(window.SPOTIFY_ME_PLAYLISTS_URL);
-var configuredSpotifyUsersUrl = sanitizeInjectedValue(window.SPOTIFY_USERS_URL);
 var configuredSpotifyPlaylistsUrl = sanitizeInjectedValue(window.SPOTIFY_PLAYLISTS_URL);
 var configuredSpotifyPlayerUrl = sanitizeInjectedValue(window.SPOTIFY_PLAYER_URL);
 var configuredSpotifyAudioFeaturesUrl = sanitizeInjectedValue(window.SPOTIFY_AUDIO_FEATURES_URL);
 var configuredSpotifyArtistsUrl = sanitizeInjectedValue(window.SPOTIFY_ARTISTS_URL);
 var configuredSpotifyAlbumsUrl = sanitizeInjectedValue(window.SPOTIFY_ALBUMS_URL);
-var DEFAULT_SPOTIFY_PROXY_PATH = "/api/spotify";
 var activeSpotifyClientId = null;
 
 function getSpotifyProxyCandidates() {
-  var candidates = [];
-  if (configuredSpotifyProxyUrl) {
-    candidates.push(configuredSpotifyProxyUrl);
-  }
-  return candidates;
+  return [];
 }
 
 function getConfiguredSpotifyClientIds() {
@@ -1717,13 +1709,9 @@ function saveTracksToPlaylist(playlist, inputTracks) {
       uris.push(track.details.uri);
     }
 
-    var url =
-      configuredSpotifyUsersUrl +
-      "/" +
-      curUserID +
-      "/playlists/" +
-      playlist.id +
-      "/tracks";
+    var url = (playlist.tracks && playlist.tracks.href)
+      ? playlist.tracks.href
+      : (configuredSpotifyMeUrl.replace(/\/me$/, "") + "/playlists/" + playlist.id + "/tracks");
     var params = { uris: uris };
     callSpotify("POST", url, params, function (ok) {
       if (ok) {
@@ -1765,7 +1753,7 @@ async function reorderSpotifyPlaylist(nextOrder, playlistReference) {
     throw new Error("bad playlist URI");
   }
 
-  var url = configuredSpotifyPlaylistsUrl + "/" + playlistID + "/tracks";
+  var url = (configuredSpotifyMeUrl.replace(/\/me$/, "") + "/playlists/" + playlistID + "/tracks");
   var currentTracks = curNode && Array.isArray(curNode.tracks) ? curNode.tracks : [];
   var currentItems = currentTracks
     .map(function (track, index) {
@@ -1803,36 +1791,35 @@ async function reorderSpotifyPlaylist(nextOrder, playlistReference) {
     }
   });
 
-  var deletePayloads = currentItems
-    .slice()
-    .sort(function (a, b) {
-      return b.position - a.position;
-    });
+  // Perform reordering using the reorder endpoint to preserve added_at dates
+  var liveItems = [...currentItems];
+  for (var i = 0; i < orderedItems.length; i++) {
+    var targetItem = orderedItems[i];
+    var currentIdx = liveItems.indexOf(targetItem);
 
-  for (var deleteIndex = 0; deleteIndex < deletePayloads.length; deleteIndex += 100) {
-    var deleteBatch = deletePayloads.slice(deleteIndex, deleteIndex + 100).map(function (item) {
-      return {
-        uri: item.uri,
-        positions: [item.position],
-      };
-    });
+    if (currentIdx !== i && currentIdx !== -1) {
+      // Find contiguous range to move
+      var rangeLength = 1;
+      while (
+        i + rangeLength < orderedItems.length &&
+        currentIdx + rangeLength < liveItems.length &&
+        liveItems[currentIdx + rangeLength] === orderedItems[i + rangeLength]
+      ) {
+        rangeLength++;
+      }
 
-    await spotifyFetcher.apiCall(url, "DELETE", {
-      tracks: deleteBatch,
-    });
-  }
-
-  for (var addIndex = 0; addIndex < orderedItems.length; addIndex += 100) {
-    var addBatch = orderedItems.slice(addIndex, addIndex + 100).map(function (item) {
-      return item.uri;
-    });
-
-    if (addBatch.length > 0) {
-      await spotifyFetcher.apiCall(url, "POST", {
-        uris: addBatch,
+      await spotifyFetcher.apiCall(url, "PUT", {
+        range_start: currentIdx,
+        insert_before: i,
+        range_length: rangeLength,
       });
+
+      // Update local state to track the move
+      var moved = liveItems.splice(currentIdx, rangeLength);
+      liveItems.splice(i, 0, ...moved);
     }
   }
+
 
   return orderedItems.map(function (item) {
     return item.id;
@@ -1847,7 +1834,7 @@ async function deleteTracksFromPlaylist(trackIds, playlistReference) {
     throw new Error("bad playlist URI");
   }
 
-  var url = configuredSpotifyPlaylistsUrl + "/" + playlistID + "/tracks";
+  var url = (configuredSpotifyMeUrl.replace(/\/me$/, "") + "/playlists/" + playlistID + "/tracks");
   var currentTracks =
     curNode && Array.isArray(curNode.tracks) ? curNode.tracks : [];
 
@@ -1920,7 +1907,7 @@ function savePlaylist() {
   if (curTracks.length > 0) {
     var name = document.getElementById("staging-playlist-name").textContent;
     info("saving " + name);
-    var url = configuredSpotifyUsersUrl + "/" + curUserID + "/playlists";
+    var url = configuredSpotifyPlaylistsUrl;
     callSpotify("POST", url, { name: name }, function (ok, results) {
       if (ok) {
         saveTracksToPlaylist(results, curTracks);
@@ -2419,8 +2406,6 @@ async function refreshAccessToken() {
 
 class SpotifyDataFetcher {
   constructor() {
-    this.proxyCandidates = getSpotifyProxyCandidates();
-    this.proxyUrl = this.proxyCandidates[0];
     this.queue = [];
     this.activeRequests = 0;
     this.maxConcurrent = 8;
@@ -2510,11 +2495,7 @@ class SpotifyDataFetcher {
           // Apply rate limiting within the concurrency slot
           await this.throttle();
 
-          var response = null;
-          var responseSource = "direct";
-          var directNetworkError = null;
-          var lastNetworkError = null;
-
+          let response = null;
           try {
             response = await this.callSpotifyDirect(
               url,
@@ -2526,38 +2507,8 @@ class SpotifyDataFetcher {
             if (directError && directError.name === "AbortError") {
               throw directError;
             }
-            directNetworkError = directError;
-            responseSource = "proxy";
-          }
-
-          if (!response) {
-            for (let i = 0; i < this.proxyCandidates.length; i++) {
-              const candidateUrl = this.proxyCandidates[i];
-              try {
-                response = await fetch(candidateUrl, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ url, method, data, accessToken }),
-                  signal: controller.signal,
-                });
-                this.proxyUrl = candidateUrl;
-                break;
-              } catch (networkError) {
-                lastNetworkError = networkError;
-                if (networkError && networkError.name === "AbortError") {
-                  throw networkError;
-                }
-                if (i === this.proxyCandidates.length - 1) {
-                  throw networkError;
-                }
-              }
-            }
-          }
-
-          if (!response) {
-            const finalErr = directNetworkError || lastNetworkError || new Error("Spotify request failed");
-            restartAuthorization(finalErr.message);
-            throw finalErr;
+            restartAuthorization(directError.message);
+            throw directError;
           }
 
           if (response.status === 429) {
@@ -2625,21 +2576,11 @@ class SpotifyDataFetcher {
           }
 
           if (!response.ok) {
-            const errorData = await response.text();
             if (
               response.status === 502 ||
               response.status === 503 ||
               response.status === 504
             ) {
-              if (responseSource === "proxy") {
-                return {
-                  type: "error",
-                  message:
-                    "Proxy unavailable (" +
-                    response.status +
-                    "). Start the backend server (`npm run dev` or `npm run dev:backend`) and retry.",
-                };
-              }
               return {
                 type: "error",
                 message:
@@ -2648,6 +2589,7 @@ class SpotifyDataFetcher {
                   "). Please retry in a moment.",
               };
             }
+            const errorData = await response.text();
             return {
               type: "error",
               message: `API Error: ${response.status} - ${errorData}`,
@@ -3566,7 +3508,7 @@ async function getMusicFromPlaylists(allPlaylists) {
     // Paginate playlists sequentially to avoid massive overhead upfront
     while (offset < total && !abortLoading) {
       const results = await spotifyFetcher.apiCall(
-        configuredSpotifyMePlaylistsUrl,
+        configuredSpotifyPlaylistsUrl,
         "GET",
         { limit: 50, offset },
       );
@@ -3620,7 +3562,9 @@ async function getPlaylistTracks(playlist) {
   const uri = playlist.uri;
   if (isValidPlaylistUri(uri)) {
     const playlistID = getPlaylistPid(uri);
-    const url = configuredSpotifyPlaylistsUrl + "/" + playlistID + "/tracks";
+    const url = (playlist.tracks && playlist.tracks.href)
+      ? playlist.tracks.href
+      : (configuredSpotifyMeUrl.replace(/\/me$/, "") + "/playlists/" + playlistID + "/tracks");
     const imageUrl = (playlist.images && playlist.images.length > 0) ? playlist.images[0].url : null;
     return getTracksFromAPI(playlist.name, url, imageUrl, "playlist");
   } else {
